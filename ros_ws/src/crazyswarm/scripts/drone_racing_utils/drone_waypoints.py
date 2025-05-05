@@ -124,12 +124,72 @@ def _counter_rounded_rectangle(theta: float) -> jnp.ndarray:
 
     return jnp.array([x, y])
 
+def _counter_stadium(theta: float) -> jnp.ndarray:
+    """
+    A stadium/racetrack: two straight segments of total length 2*L
+    joined by semicircles of radius R, all parameterized at constant speed.
+    """
+    L = 1.8    # half-length of each straight
+    R = 0.9     # radius of semicircles
+    # total perimeter = 2*(2L) + 2*(pi*R)
+    perim = 4 * L + 2 * jnp.pi * R
+
+    # map theta∈[0,2π) → s∈[0,perim)
+    s = (theta % (2*jnp.pi)) / (2*jnp.pi) * perim
+
+    # segment boundaries
+    B0 = 2 * L           # end of top straight
+    B1 = B0 + jnp.pi*R   # end of right semicircle
+    B2 = B1 + 2 * L      # end of bottom straight
+    # left semicircle covers [B2, perim)
+
+    # piecewise x(s) and y(s)
+    conds = (
+        s < B0,
+        (s >= B0) & (s < B1),
+        (s >= B1) & (s < B2),
+
+    )
+
+    # 1) top straight
+    x0 = -L + s
+    y0 =  R
+
+    # 2) right semicircle (from top → bottom)
+    #    φ = π/2 − (arc_length)/R  runs from +π/2 → −π/2
+    φr = jnp.pi/2 - (s - B0) / R
+    x1 =  L + R * jnp.cos(φr)
+    y1 =      R * jnp.sin(φr)
+
+    # 3) bottom straight
+    x2 =  L - (s - B1)
+    y2 = -R
+
+    # 4) left semicircle (from bottom → top)
+    #    φ = −π/2 + (arc_length)/R runs from −π/2 → +π/2
+    φl = -jnp.pi/2 + (s - B2) / R
+    x3 = -L - R * jnp.cos(φl)
+    y3 =      R * jnp.sin(φl)
+
+    x = jnp.select(conds, (x0, x1, x2), default=x3)
+    y = jnp.select(conds, (y0, y1, y2), default=y3)
+
+    theta = jnp.pi / 3
+    # rotate the track by theta so we can use the room better
+    cos, sin = jnp.cos(theta), jnp.sin(theta)
+    x_rotated = x * cos - y * sin
+    y_rotated = x * sin + y * cos + 1.5
+
+    return jnp.stack([x_rotated, y_rotated])
+
 
 _ANALYTIC_MAP: dict[str, Callable[[float], jnp.ndarray]] = {
     "counter circle": _counter_circle,
     "counter oval": _counter_oval,
     "counter square": _counter_square,
     "counter rectangle": _counter_rounded_rectangle,
+    "counter taladega": _counter_stadium,
+    "counter stadium": _counter_stadium,
 }
 
 # ---------------------------------------------------------------------------
@@ -203,12 +263,12 @@ class WaypointGenerator:
         # differences between successive (x,y)
         deltas = np.diff(self.raceline[:, :2], axis=0)
         segment_lengths = np.linalg.norm(deltas, axis=1)
-        print("segment_lengths", segment_lengths)
         # cum_s[0] = 0, then cumulative sum of segment_lengths
         self.cum_s = np.concatenate(([0.0], np.cumsum(segment_lengths)))
-        self.left_boundary, self.right_boundary = self.get_boundaries(0.5)
+        self.left_boundary, self.right_boundary = self.get_boundaries(0.7)
         self.waypoint_list_np = np.array(self.raceline, dtype=float)
-
+        self.track_length = self.cum_s[-1]
+        print(self.track_length)
     def generate(
         self,
         obs: np.ndarray,
@@ -286,7 +346,10 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     # Choose a track and generator parameters --------------------------------
-    gen = WaypointGenerator("counter rectangle", dt=0.1, horizon=8, speed=0.5)
+    # gen = WaypointGenerator("counter circle", dt=0.1, horizon=8, speed=0.5)
+    
+    #choosing track datona nascar: 
+    gen = WaypointGenerator("counter stadium", dt=0.1, horizon=8, speed=2.0)
 
     # Dense sampling of the full track for plotting --------------------------
     if gen._mode == "analytic":
