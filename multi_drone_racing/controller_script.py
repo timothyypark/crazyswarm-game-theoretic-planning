@@ -4,24 +4,75 @@ import numpy as np
 from pycrazyswarm import Crazyswarm
 import time
 
-# 1) Black-boxed MPC callback stub returning controls and predicted next x/y/vx/vy
-def mpc_callback(measured_states):
+
+try:
+    import keyboard
+    _KEYBOARD_AVAILABLE = True
+except ImportError:
+    _KEYBOARD_AVAILABLE = False
+
+trajectory_type = "counter stadium"
+LOOKAHEAD_HORIZON = 1.0   
+LOOKAHEAD_DT      = 0.1    
+SHIFT_THRESHOLD   = 0.1   
+H = 8
+DT = 0.1
+
+waypoint_generator = WaypointGenerator(trajectory_type, DT, H, 1.3)
+tracks_pos = {"counter circle": [(4.4, 0.9), (4.1, 1.8), (4.5, 0)], 
+                "counter oval": [(0, 0), (0, 0), (0, 0)], 
+                "counter square": [(0, 0), (0, 0), (0, 0)], 
+                "counter rectangle": [(1, 2.5), (-1.5, 2), (-1.5, -2)], 
+                "counter stadium": [(-1.7, 0.4), (-1.4, 0.7), (-1.3, 1.1)]}
+
+
+def callback(measured_states, last_i):
     """
     Inputs:
       measured_states: list of np.array([x, y, z, vx, vy, vz]) for each drone
     Returns:
       list of tuples (ax, ay, x_ref, y_ref, vx_ref, vy_ref)
     """
-    outputs = []
-    for state in measured_states:
-        # TODO: replace with your MPC solver output
-        ax, ay = 0.0, 0.0
-        x, y, z, vx, vy, vz = state
-        # Predicted next-step in x/y and velocities (stub: hold current)
-        x_ref, y_ref = x, y
-        vx_ref, vy_ref = vx, vy
-        outputs.append((ax, ay, x_ref, y_ref, vx_ref, vy_ref))
-    return outputs
+
+    global _emergency_land
+    # Check for emergency land on spacebar
+    if _KEYBOARD_AVAILABLE and keyboard.is_pressed('space'):
+        print("[Emergency] Spacebar pressed. Triggering emergency landing in callback...")
+        _emergency_land = True
+        return None, None, None, last_i
+    
+
+    v_factor = 1
+    x, y, vx, vy = measured_states
+    if last_i == -1 :
+        dists = np.sqrt((waypoint_generator.raceline[:,0]-x)**2 + (waypoint_generator.raceline[:,1]-y)**2)
+        closest_idx = np.argmin(dists)
+    else :
+        raceline_ext = np.concatenate((waypoint_generator.raceline[last_i:,:],waypoint_generator.raceline[:50,:]),axis=0)
+        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2)
+        closest_idx = (np.argmin(dists) + last_i)%len(waypoint_generator.raceline)
+    
+    curr_idx = (closest_idx+1)%len(waypoint_generator.raceline)
+    next_idx = (curr_idx+1)%len(waypoint_generator.raceline)
+    next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+    dist_target = 0
+    lookahead_factor = .3
+    traj = []
+
+    for t in np.arange(LOOKAHEAD_DT, LOOKAHEAD_HORIZON + LOOKAHEAD_DT/2,LOOKAHEAD_DT):
+        dist_target += v_factor*waypoint_generator.raceline[curr_idx,2]*LOOKAHEAD_DT
+        while dist_target - next_dist > 0. :
+            dist_target -= next_dist
+            curr_idx = next_idx
+            next_idx = (next_idx+1)%len(waypoint_generator.raceline)
+            next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+
+        ratio = dist_target/next_dist
+        pt = (1.-ratio)*waypoint_generator.raceline[next_idx,:2] + ratio*waypoint_generator.raceline[curr_idx,:2]
+        traj.append(pt)
+    traj = np.array(traj)
+    ax, ay, state = mpc(np.array(measured_states),np.array(traj),lookahead_factor=lookahead_factor)
+    return  ax, ay, state, closest_idx
 
 
 def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, rate=100, z_setpoints=None):
@@ -47,7 +98,7 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, rate=100, z_se
 
     step = 0
     t0 = timeHelper.time()
-
+    last_i = -1
     while not timeHelper.isShutdown() and step < total_steps:
         # 1) measure actual state
         measured_states = []
@@ -55,15 +106,16 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, rate=100, z_se
             p = np.array(cf.position())
             v = (p - prev_pos[i]) / dt
             prev_pos[i] = p
-            measured_states.append(np.hstack([p, v]))  # [x,y,z,vx,vy,vz]
+            measured_states.append(np.hstack([p[:2], v[:2]]))  # [x,y,z,vx,vy,vz]
 
         # 2) MPC: get control + predicted next x/y/vx/vy
-        u_and_x = mpc_callback(measured_states)
+        ax, ay, state, last_i = callback(measured_states[0], last_i)
+        if _emergency_land:
+            break
 
         # 3) send commands and log
         for i, cf in enumerate(cfs):
-            ax, ay, x_ref, y_ref, vx_ref, vy_ref = u_and_x[i]
-
+            x_ref, y_ref, vx_ref, vy_ref = state
             # constant altitude and zero vertical velocity
             z_ref = z_setpoints[i]
             vz_ref = 0.0
@@ -87,6 +139,13 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, rate=100, z_se
 
         step += 1
         timeHelper.sleepForRate(rate)
+    # stop and land
+    print("Stopping and landing...")
+    for cf in cfs:
+        cf.notifySetpointsStop()
+    for cf in cfs:
+        cf.land(targetHeight=0.05, duration=1.0)
+    timeHelper.sleep(2.0)
 
     return X_log
 
@@ -94,14 +153,14 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, rate=100, z_se
 if __name__ == "__main__":
     horizon = 50
     stopping_horizon = 15
-    rate = 10.0  # Hz
+    rate = 100.0  # Hz
 
     swarm = Crazyswarm()
     timeHelper = swarm.timeHelper
-    cfs = swarm.allcfs.crazyflies[:3]  # first three drones
+    cfs = swarm.allcfs.crazyflies[:1]
 
     # desired constant take-off altitudes
-    Zs = [0.5, 0.5, 0.5]
+    Zs = [0.5]
 
     # take off all three
     for cf, Z in zip(cfs, Zs):
@@ -115,7 +174,6 @@ if __name__ == "__main__":
         rate=rate,
         z_setpoints=Zs
     )
-
     # stop setpoints and land
     for cf in cfs:
         cf.notifySetpointsStop()
