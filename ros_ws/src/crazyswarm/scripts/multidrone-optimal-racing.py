@@ -10,6 +10,7 @@ from drone_racing_utils.mpc_controller import mpc
 from drone_racing_utils.drone_waypoints import WaypointGenerator
 import jax
 import jax.numpy as jnp
+import torch
 
 # try:
 #     import keyboard
@@ -25,8 +26,12 @@ LOOKAHEAD_DT      = 0.1
 SHIFT_THRESHOLD   = 0.1   
 H = 8
 DT = 0.1
+N_steps_per_iter = 6
+grad_rate = 0.00001
 lat_err_thresh  = 0.3   # metres
 lat_err_gain    = 2.0    # dimensionless
+
+
 
 waypoint_generator = WaypointGenerator(trajectory_type, DT, H, 1.3)
 waypoint_generator_opp = WaypointGenerator(trajectory_type, DT, H, 1.3)
@@ -37,6 +42,13 @@ tracks_pos = {"counter circle": [(4.4, 0.9), (4.1, 1.8), (4.5, 0)],
                 "counter square": [(0, 0), (0, 0), (0, 0)], 
                 "counter rectangle": [(1, 2.5), (-1.5, 2), (-1.5, -2)], 
                 "counter stadium": [(-1.7, 0.4), (-1.4, 0.7), (-1.3, 1.1)]}
+
+
+# Load trained model from model.pth
+fs = 128
+model = SimpleModel(27,[3*fs,3*fs,3*64],1)
+model.load_state_dict(torch.load(folder+'/model_multi'+suffix+'.pth'))
+model.eval()
 
 
 def vehicle_dynamics(xk, uk):
@@ -54,56 +66,6 @@ def vehicle_dynamics(xk, uk):
         y_dot + a_y * DT,
     ])
     return x_next
-
-
-def follow_line_callback(state_arr, last_i, waypoint_gen):
-    """
-    Inputs:
-      state_arr: np.array([x, y, z, vx, vy, vz]) for drone in question
-    Returns:
-      list of tuples (ax, ay, x_ref, y_ref, vx_ref, vy_ref)
-    """
-
-    # global _emergency_land
-    # Check for emergency land on spacebar
-    # if _KEYBOARD_AVAILABLE and keyboard.is_pressed('space'):
-    #     print("[Emergency] Spacebar pressed. Triggering emergency landing in callback...")
-    #     _emergency_land = True
-    #     return None, None, None, last_i
-    x, y, _, vx, vy, _ = state_arr
-    xy_state = x,y,vx,vy
-    if last_i == -1:
-        dists = np.sqrt((waypoint_gen.raceline[:,0]-x)**2 + (waypoint_gen.raceline[:,1]-y)**2)
-        closest_idx = np.argmin(dists)
-    else:
-        raceline_ext = np.concatenate((waypoint_gen.raceline[last_i:,:],waypoint_gen.raceline[:50,:]),axis=0)
-        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2)
-        closest_idx = (np.argmin(dists) + last_i)%len(waypoint_gen.raceline)
-    
-    curr_idx = (closest_idx+1)%len(waypoint_gen.raceline)
-    next_idx = (curr_idx+1)%len(waypoint_gen.raceline)
-    next_dist = np.sqrt((waypoint_gen.raceline[next_idx,0]-waypoint_gen.raceline[curr_idx,0])**2 + (waypoint_gen.raceline[next_idx,1]-waypoint_gen.raceline[curr_idx,1])**2)
-    dist_target = 0
-    traj = []
-    v_factor = 1
-    lookahead_factor = 1
-
-
-    for t in np.arange(LOOKAHEAD_DT, LOOKAHEAD_HORIZON + LOOKAHEAD_DT/2,LOOKAHEAD_DT):
-        dist_target += v_factor*waypoint_gen.raceline[curr_idx,2]*LOOKAHEAD_DT
-        while dist_target - next_dist > 0. :
-            dist_target -= next_dist
-            curr_idx = next_idx
-            next_idx = (next_idx+1)%len(waypoint_gen.raceline)
-            next_dist = np.sqrt((waypoint_gen.raceline[next_idx,0]-waypoint_gen.raceline[curr_idx,0])**2 + (waypoint_gen.raceline[next_idx,1]-waypoint_gen.raceline[curr_idx,1])**2)
-
-        ratio = dist_target/next_dist
-        pt = (1.-ratio)*waypoint_gen.raceline[next_idx,:2] + ratio*waypoint_gen.raceline[curr_idx,:2]
-        traj.append(pt) # just follow the raceline (centerline)
-    traj = np.array(traj)
-    print("traj", traj)
-    ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
-    return  ax, ay, state, closest_idx
 
 def calc_shift(s,s_opp,vs,vs_opp,sf1=0.4,sf2=0.1,t=1.0) :
     if vs == vs_opp :
@@ -242,23 +204,23 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
     last_i_opp = -1
     last_i_opp1 = -1
 
-    curr_speed_factor = 1.03
-    curr_lookahead_factor = 0.75
-    curr_sf1 = 0.47
-    curr_sf2 = 0.47
-    blocking = 0.2
-        
-    curr_speed_factor_opp = 1.
-    curr_lookahead_factor_opp = 0.15
-    curr_sf1_opp = 0.1
-    curr_sf2_opp = 0.5
-    blocking_opp = 0.2
+    curr_sf1 = np.random.uniform(0.1,0.5)
+    curr_sf2 = np.random.uniform(0.1,0.5)
+    curr_lookahead_factor = np.random.uniform(0.12,0.5)
+    curr_speed_factor = np.random.uniform(0.85,1.1)
+    blocking = np.random.uniform(0.,1.0)
     
-    curr_speed_factor_opp1 = 1.
-    curr_lookahead_factor_opp1 = 0.15
-    curr_sf1_opp1 = 0.1
-    curr_sf2_opp1 = 0.5
-    blocking_opp1 = 0.2
+    curr_sf1_opp = np.random.uniform(0.1,0.5)
+    curr_sf2_opp = np.random.uniform(0.1,0.5)
+    curr_lookahead_factor_opp = np.random.uniform(0.12,0.5)
+    curr_speed_factor_opp = np.random.uniform(0.85,1.1)
+    blocking_opp = np.random.uniform(0.,1.0)
+
+    curr_sf1_opp1 = np.random.uniform(0.1,0.5)
+    curr_sf2_opp1 = np.random.uniform(0.1,0.5)
+    curr_lookahead_factor_opp1 = np.random.uniform(0.12,0.5)
+    curr_speed_factor_opp1 = np.random.uniform(0.85,1.1)
+    blocking_opp1 = np.random.uniform(0.,1.0)
 
     while not timeHelper.isShutdown() and step < total_steps:
         # 1) measure actual state
@@ -290,8 +252,8 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         v_opp1 = np.sqrt(vx_opp1**2 + vy_opp1**2)
 
         ax, ay, state, last_i = comp_callback(measured_states[0], (s,e,v_ego),(s_opp,e_opp,v_opp),(s_opp1,e_opp1,v_opp1), curr_sf1, curr_sf2, curr_lookahead_factor*2, curr_speed_factor**2, blocking, last_i, waypoint_generator)
-        ax_opp, ay_opp, state_opp, last_i_opp = follow_line_callback(measured_states[1], last_i_opp, waypoint_generator_opp)
-        ax_opp1, ay_opp1, state_opp1, last_i_opp1 = follow_line_callback(measured_states[2], last_i_opp1, waypoint_generator_opp1)
+        ax_opp, ay_opp, state_opp, last_i_opp = comp_callback(measured_states[1], (s_opp,e_opp,v_opp), (s,e,v_ego),(s_opp1,e_opp1,v_opp1), curr_sf1_opp, curr_sf2_opp, curr_lookahead_factor_opp*2, curr_speed_factor_opp**2, blocking_opp,last_i_opp, waypoint_generator_opp)
+        ax_opp1, ay_opp1, state_opp1, last_i_opp1 = comp_callback(measured_states[2], (s_opp1,e_opp1,v_opp1),(s,e,v_ego),(s_opp,e_opp,v_opp), curr_sf1_opp1, curr_sf2_opp1, curr_lookahead_factor_opp1*2, curr_speed_factor_opp1**2,blocking_opp1, last_i_opp1, waypoint_generator_opp1)
 
         print("opt_x: ", state)
 
@@ -312,8 +274,28 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             x_dyn_opp1[2] *= np.exp(-lat_err_gain*(abs(e_opp1)- lat_err_thresh))
             x_dyn_opp1[3] *= np.exp(-lat_err_gain*(abs(e_opp1)- lat_err_thresh))
        
-        print("x_dyn: ", x_dyn)
-        print("u", ax, ay)
+        # print("x_dyn: ", x_dyn)
+        # print("u", ax, ay)
+        if step < horizon :
+            for i in range(N_steps_per_iter) :
+                state_obs = [s,s_opp,s_opp1, e,e_opp,e_opp1, x_dyn[2], x_dyn[3], x_dyn_opp[2], x_dyn_opp[3], x_dyn_opp1[2], x_dyn_opp1[3],curr_sf1,curr_sf2,curr_lookahead_factor,curr_speed_factor,blocking,curr_sf1_opp_,curr_sf2_opp_, curr_lookahead_factor_opp_, curr_speed_factor_opp_, blocking_opp_, curr_sf1_opp1_, curr_sf2_opp1_, curr_lookahead_factor_opp1_, curr_speed_factor_opp1_, blocking_opp1_]
+                X = torch.tensor(np.array([state_obs])).float()
+                X[:,0] = float(state_obs[2] - state_obs[1])
+                X[:,1] -= float(state_obs[0])
+                X[:,2] -= float(state_obs[0])
+                X[:,0] = (X[:,0]>HALF_LEN)*(X[:,0]-TRACK_LEN) + (X[:,0]<-HALF_LEN)*(X[:,0]+TRACK_LEN) + (X[:,0]<=HALF_LEN)*(X[:,0]>=-HALF_LEN)*X[:,0]
+                X[:,1] = (X[:,1]>HALF_LEN)*(X[:,1]-TRACK_LEN) + (X[:,1]<-HALF_LEN)*(X[:,1]+TRACK_LEN) + (X[:,1]<=HALF_LEN)*(X[:,1]>=-HALF_LEN)*X[:,1]
+                X[:,2] = (X[:,2]>HALF_LEN)*(X[:,2]-TRACK_LEN) + (X[:,2]<-HALF_LEN)*(X[:,2]+TRACK_LEN) + (X[:,2]<=HALF_LEN)*(X[:,2]>=-HALF_LEN)*X[:,2]
+                
+                X = torch.autograd.Variable(X, requires_grad=True)
+                model.zero_grad()
+                preds = model(X)
+                grad = torch.autograd.grad(preds[0,0],X, retain_graph=True)[0].data
+                curr_sf1 = max(0.1,min(0.5,X[0,-15].item() + grad_rate*grad[0,-15].item()))
+                curr_sf2 = max(0.1,min(0.5,X[0,-14].item() + grad_rate*grad[0,-14].item()))
+                curr_lookahead_factor = max(0.15,min(0.5,X[0,-13].item() + grad_rate*grad[0,-13].item()))
+                curr_speed_factor = max(0.85,min(1.1,X[0,-12].item() + grad_rate*grad[0,-12].item()))
+                blocking = max(0.,min(1.,X[0,-11].item() + grad_rate*grad[0,-11].item()))
 
         prev_vel = [np.array([x_dyn[2],x_dyn[3], 0.0]), np.array([x_dyn_opp[2],x_dyn_opp[3], 0.0]), np.array([x_dyn_opp1[2],x_dyn_opp1[3], 0.0])]
         # if _emergency_land:
