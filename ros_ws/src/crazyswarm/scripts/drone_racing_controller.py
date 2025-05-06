@@ -94,6 +94,8 @@ def callback(state_arr, last_i):
         traj.append(pt) # just follow the raceline (centerline)
     traj = np.array(traj)
     print("traj", traj)
+    print(xy_state, traj.shape)
+    exit(0)
     ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
     return  ax, ay, state, closest_idx
 

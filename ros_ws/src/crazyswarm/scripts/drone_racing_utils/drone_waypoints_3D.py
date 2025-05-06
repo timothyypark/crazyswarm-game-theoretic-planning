@@ -239,8 +239,8 @@ def _counter_stadium_3D(theta: float) -> jnp.ndarray:
     y_rotated = x * sin + y * cos + 1.5
 
     base_h, amp = 1.0, 2
-    z = base_h + amp*jnp.sin(s / perim * 2*jnp.pi) #z=base_height+amplitude*sin(s*2π/perim)
-
+    # z = base_h + amp*jnp.sin(s / perim * 2*jnp.pi) #z=base_height+amplitude*sin(s*2π/perim)
+    z = 0.5
     return jnp.stack([x_rotated, y_rotated, z])
 
 

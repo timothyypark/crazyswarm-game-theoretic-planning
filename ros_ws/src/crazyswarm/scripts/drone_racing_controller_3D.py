@@ -6,7 +6,8 @@ This Code is only for following the center line for one drone, does not implemen
 import numpy as np
 from pycrazyswarm import Crazyswarm
 import time
-from drone_racing_utils.mpc_controller_3D import mpc #changed to import 3d
+# from drone_racing_utils.mpc_controller_3D import mpc #changed to import 3d
+from drone_racing_utils.mpc_controller import mpc
 from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 
 # try:
@@ -14,7 +15,7 @@ from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 #     _KEYBOARD_AVAILABLE = True
 # except ImportError:
 #     _KEYBOARD_AVAILABLE = False
-N = 20
+N = 10
 trajectory_type = "counter stadium"
 Zs = [0.5]
 
@@ -23,7 +24,7 @@ SHIFT_THRESHOLD   = 0.1
 # H = 20
 DT = 0.1
 # LOOKAHEAD_HORIZON = 3.0
-H = 20
+H = N
 LOOKAHEAD_HORIZON = N * DT #1.0   
 
 
@@ -56,7 +57,59 @@ def vehicle_dynamics_3d(xk, uk):
     return x_next
 
 
-def callback(state_arr, last_i, z_setpoint):
+def callback(state_arr, last_i):
+    """
+    Inputs:
+      state_arr: np.array([x, y, z, vx, vy, vz]) for drone in question
+    Returns:
+      list of tuples (ax, ay, x_ref, y_ref, vx_ref, vy_ref)
+    """
+
+    # global _emergency_land
+    # Check for emergency land on spacebar
+    # if _KEYBOARD_AVAILABLE and keyboard.is_pressed('space'):
+    #     print("[Emergency] Spacebar pressed. Triggering emergency landing in callback...")
+    #     _emergency_land = True
+    #     return None, None, None, last_i
+    
+
+    v_factor = 1
+    x, y, _, vx, vy, _ = state_arr
+    xy_state = x,y,vx,vy
+    if last_i == -1:
+        dists = np.sqrt((waypoint_generator.raceline[:,0]-x)**2 + (waypoint_generator.raceline[:,1]-y)**2)
+        closest_idx = np.argmin(dists)
+    else:
+        raceline_ext = np.concatenate((waypoint_generator.raceline[last_i:,:],waypoint_generator.raceline[:50,:]),axis=0)
+        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2)
+        closest_idx = (np.argmin(dists) + last_i)%len(waypoint_generator.raceline)
+    
+    curr_idx = (closest_idx+1)%len(waypoint_generator.raceline)
+    next_idx = (curr_idx+1)%len(waypoint_generator.raceline)
+    next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+    dist_target = 0
+    lookahead_factor = .3
+    traj = []
+
+    for t in np.arange(LOOKAHEAD_DT, LOOKAHEAD_HORIZON + LOOKAHEAD_DT/2,LOOKAHEAD_DT):
+        dist_target += v_factor*waypoint_generator.raceline[curr_idx,2]*LOOKAHEAD_DT
+        while dist_target - next_dist > 0. :
+            dist_target -= next_dist
+            curr_idx = next_idx
+            next_idx = (next_idx+1)%len(waypoint_generator.raceline)
+            next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+
+        ratio = dist_target/next_dist
+        pt = (1.-ratio)*waypoint_generator.raceline[next_idx,:2] + ratio*waypoint_generator.raceline[curr_idx,:2]
+        traj.append(pt[:2]) # just follow the raceline (centerline)
+    traj = np.array(traj)
+    print("traj", traj)
+    print(xy_state,traj.shape)
+    exit(0)
+    ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
+    return  ax, ay, state, closest_idx
+
+def callback1(state_arr, last_i, z_setpoint):
     """
     Inputs:
       state_arr: np.array([x, y, z, vx, vy, vz]) for drone in question
@@ -77,11 +130,11 @@ def callback(state_arr, last_i, z_setpoint):
     # xy_state = x,y,vx,vy
     state6 = np.array([x, y, z, vx, vy, vz]) 
     if last_i == -1:
-        dists = np.sqrt((waypoint_generator.raceline[:,0]-x)**2 + (waypoint_generator.raceline[:,1]-y)**2)
+        dists = np.sqrt((waypoint_generator.raceline[:,0]-x)**2 + (waypoint_generator.raceline[:,1]-y)**2 + (waypoint_generator.raceline[:,2]-z)**2)
         closest_idx = np.argmin(dists)
     else:
         raceline_ext = np.concatenate((waypoint_generator.raceline[last_i:,:],waypoint_generator.raceline[:50,:]),axis=0)
-        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2)
+        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2 + (raceline_ext[:50,2]-z)**2)
         closest_idx = (np.argmin(dists) + last_i)%len(waypoint_generator.raceline)
     
     curr_idx = (closest_idx+1)%len(waypoint_generator.raceline)
@@ -112,7 +165,7 @@ def callback(state_arr, last_i, z_setpoint):
         kin_horizon=LOOKAHEAD_HORIZON
     )
     traj_xy = waypoints[1 : H+1, :2]    # shape (H,2)
-    print("traj", traj_xy)
+    # print("traj", traj_xy)
     # ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
     # return  ax, ay, state, closest_idx
     
@@ -155,9 +208,9 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         measured_states = []
         for i, cf in enumerate(cfs):
             p = np.array(cf.position())
-            print("p: ", p)
+            # print("p: ", p)
             v = prev_vel
-            print("v: ", v)
+            # print("v: ", v)
             prev_pos[i] = p
             measured_states.append(np.hstack([p, v]))  # [x,y,z,vx,vy,vz]
 
@@ -173,9 +226,11 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         
         #for 3d case 
         z_sp = z_setpoints[0]   # or [i] if looping multiple drones
-        ax, ay, az, state_pred6, last_i = callback(measured_states[0],last_i,z_sp)
-        
-        print("predicted state:", state_pred6)
+        # ax, ay, az, state_pred6, last_i = callback(measured_states[0],last_i,z_sp)
+        ax, ay, state, last_i = callback(measured_states[0], last_i)
+        az = 0.
+        print("predicted state:", state)
+        state_pred6 = [state[0],state[1],0.,state[2],state[3],0.]
         x_dyn = vehicle_dynamics_3d(state_pred6, [ax, ay, az])
 
         # prev_vel = np.array([x_dyn[2],x_dyn[3], 0.0])
@@ -188,16 +243,16 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             # constant altitude and zero vertical velocity
             z_target = z_setpoints[i]
             # vz_new = 0.0
-            
-            az_pid = K2_alt @ np.array([z_target - measured_states[i][2],0.0])
-            accel3d = np.array([ax, ay, az_pid])
+            # az_pid = K2_alt @ np.array([z_target - measured_states[i][2],0.0])
 
             # altitude-hold acceleration -- removed from 2d version
-            # z_meas = measured_states[i][2]
-            # vz_meas = measured_states[i][5]
-            # az = K2_alt @ np.array([z_new - z_meas,
-            #                          vz_new - vz_meas])
+            z_meas = measured_states[i][2]
+            vz_meas = measured_states[i][5]
+            az = K2_alt @ np.array([z_new - z_meas,
+                                     vz_new - vz_meas])
 
+            print("ax", ax, "ay", ay, "az", az)
+            accel3d = np.array([ax, ay, az])
             cf.cmdFullState(
                 np.array([x_new, y_new, z_new]),
                 np.array([vx_new, vy_new, vz_new]),
