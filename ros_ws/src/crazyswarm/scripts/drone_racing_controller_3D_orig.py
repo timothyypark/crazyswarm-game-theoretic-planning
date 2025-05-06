@@ -14,17 +14,16 @@ from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 #     _KEYBOARD_AVAILABLE = True
 # except ImportError:
 #     _KEYBOARD_AVAILABLE = False
-N = 20
+
 trajectory_type = "counter stadium"
 Zs = [0.5]
-
+LOOKAHEAD_HORIZON = 1.0   
 LOOKAHEAD_DT      = 0.1    
 SHIFT_THRESHOLD   = 0.1   
 # H = 20
 DT = 0.1
 # LOOKAHEAD_HORIZON = 3.0
-H = 20
-LOOKAHEAD_HORIZON = N * DT #1.0   
+H = 10
 
 
 waypoint_generator = WaypointGenerator(trajectory_type, DT, H, 1.3)

@@ -2,7 +2,7 @@ import numpy as np
 import casadi as ca
 
 # IBR params
-N = 20 #changed from 10
+N = 30 #changed from 10
 
 dt = 0.1
 
@@ -37,8 +37,8 @@ target_state = ca.MX.sym('target_states', N*3)
 
 # Weights for cost
 a_max = 3.0      # [m/s^2] acceleration bound (high so constraint is inactive)
-v_max = 2.7     # [m/s]   maximum speed bound (adjust as needed)
-Q = np.diag([1000, 1000, 1]) * qr_ratio  # state error weight
+v_max = 1.7     # [m/s]   maximum speed bound (adjust as needed)
+Q = np.diag([10000, 10000, 20000]) * qr_ratio  # state error weight
 dQ = ca.MX(Q)
 R = np.diag([100, 100, 100])              # control effort weight
 
@@ -99,8 +99,8 @@ solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
 
 # big for inequalities
 big = 1e20
-eq_cnt = 6 * (N+1) #changed from 4 to 6
-ineq_acc = N
+eq_cnt      = 6 * (N+1) #changed from 4 to 6
+ineq_acc    = N
 ineq_speed = N
 
 # build bounds for g
