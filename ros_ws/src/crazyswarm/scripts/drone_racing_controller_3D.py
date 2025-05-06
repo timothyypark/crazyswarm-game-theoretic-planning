@@ -16,11 +16,15 @@ from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 #     _KEYBOARD_AVAILABLE = False
 
 trajectory_type = "counter stadium"
+Zs = [0.5]
 LOOKAHEAD_HORIZON = 1.0   
 LOOKAHEAD_DT      = 0.1    
 SHIFT_THRESHOLD   = 0.1   
-H = 20
+# H = 20
 DT = 0.1
+# LOOKAHEAD_HORIZON = 3.0
+H = 30
+
 
 waypoint_generator = WaypointGenerator(trajectory_type, DT, H, 1.3)
 tracks_pos = {"counter circle": [(4.4, 0.9), (4.1, 1.8), (4.5, 0)], 
