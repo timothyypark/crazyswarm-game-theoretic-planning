@@ -293,8 +293,113 @@ def _load_from_csv(basename: str, speed: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Main generator class
 # ---------------------------------------------------------------------------
-
 class WaypointGenerator:
+    def __init__(self, waypoint_type: str, dt: float, horizon: int, speed: float):
+        self.dt = float(dt)
+        self.H = int(horizon)
+        self.nom_speed = float(speed)
+
+        # Resolve track spec --------------------------------------------------
+        if waypoint_type in _ANALYTIC_MAP:
+            self._mode = "analytic"
+            self._fn: Callable[[float], jnp.ndarray] = _ANALYTIC_MAP[waypoint_type]
+            # pre-sample for analytic tracks (helps closest-point search)
+            ts = jnp.arange(0.0, 2 * jnp.pi, self.dt / self.nom_speed)
+            path_xy = np.asarray(jax.vmap(self._fn)(ts))
+            # raceline: [x, y, v_ref]
+            self.raceline = np.column_stack((path_xy, np.full(len(path_xy), self.nom_speed)))
+        elif waypoint_type.endswith(".yaml"):
+            self._mode = "yaml"
+            traj = _load_from_yaml(Path(waypoint_type), speed=self.nom_speed)
+            # traj already is (N,3) = [x, y, v_ref]
+            self.raceline = traj
+        else:
+            self._mode = "csv"
+            traj = _load_from_csv(waypoint_type, speed=self.nom_speed)
+            # traj is (N,3) = [x, y, v_ref]
+            self.raceline = traj
+
+        # Compute cumulative arc-length along raceline -----------------------
+        # differences between successive (x,y)
+        deltas = np.diff(self.raceline[:, :2], axis=0)
+        segment_lengths = np.linalg.norm(deltas, axis=1)
+        # cum_s[0] = 0, then cumulative sum of segment_lengths
+        self.cum_s = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+        self.left_boundary, self.right_boundary = self.get_boundaries(0.7)
+        self.waypoint_list_np = np.array(self.raceline, dtype=float)
+        self.track_length = self.cum_s[-1]
+        print(self.track_length)
+    def generate(
+        self,
+        obs: np.ndarray,
+        dt: float,
+        kin_horizon: float = 1.2,
+    ) -> Tuple[np.ndarray, np.ndarray, float, float]:
+        pos = obs[:2]
+        # find closest point index
+        idx = int(np.linalg.norm(self.raceline[:, :2] - pos[None, :], axis=1).argmin())
+
+        # lateral error
+        def tangent(i):
+            p0, p1 = self.raceline[i, :2], self.raceline[(i+1)%len(self.raceline), :2]
+            t = p1 - p0
+            return t / np.linalg.norm(t)
+
+        t_hat = tangent(idx)
+        n_hat = np.array([-t_hat[1], t_hat[0]])
+        e_lateral = float(np.dot(pos - self.raceline[idx, :2], n_hat))
+
+        # progress
+        s_progress = float(self.cum_s[idx])
+
+        # build (H+1) future waypoints [x, y, vx, vy]
+        target = []
+        for k in range(self.H + 1):
+            j = (idx + k) % len(self.raceline)
+            # unit-tangent times reference speed
+            p0 = self.raceline[j, :2]
+            t = tangent(j)
+            v_ref = float(self.raceline[j, 2])
+            vx, vy = t * v_ref
+            target.append([p0[0], p0[1], float(vx), float(vy)])
+        target_pos_list = np.asarray(target, dtype=float)
+
+        # kinematic look-ahead point
+        # distance per index
+        # use the next segment length for ds
+        ds = np.linalg.norm(self.raceline[(idx+1)%len(self.raceline), :2] - self.raceline[idx, :2])
+        # use the local v_ref for kin‐step
+        local_v = float(self.raceline[idx, 2])
+        kin_step = int(round((kin_horizon * local_v) / max(ds, 1e-6)))
+        kin_pos = self.raceline[(idx + kin_step) % len(self.raceline), :2]
+
+        return target_pos_list, kin_pos, s_progress, e_lateral
+    
+    def calc_shifted_traj(self, traj, shift_dist) :
+        # This function calculates the shifted trajectory given the original trajectory and the shift distance.
+        traj_ = np.copy(traj)
+        traj_[:-1] = traj[1:]
+        traj_[-1] = traj[0]
+        _traj = np.copy(traj)
+        _traj[1:] = traj[:-1]
+        _traj[0] = traj[-1]
+        yaws = np.arctan2(traj_[:,1] - _traj[:,1], traj_[:,0] - _traj[:,0])
+        traj_new = np.copy(traj)
+        traj_new[:,0] = traj[:,0] + shift_dist * np.cos(yaws + np.pi/2)
+        traj_new[:,1] = traj[:,1] + shift_dist * np.sin(yaws + np.pi/2)
+        return traj_new
+
+    def get_boundaries(self, half_width: float) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Returns (left_boundary, right_boundary), each an (N,2) array of points,
+        offset from the centerline by +half_width and −half_width respectively.
+        """
+        center_xy = self.raceline[:, :2]
+        left  = self.calc_shifted_traj(center_xy, +half_width)
+        right = self.calc_shifted_traj(center_xy, -half_width)
+        return left, right
+    
+class WaypointGenerator2:
     def __init__(self, waypoint_type: str, dt: float, horizon: int, speed: float):
         self.dt = float(dt)
         self.H = int(horizon)
@@ -461,3 +566,10 @@ if __name__ == "__main__":
     ax.scatter(obs[0],obs[1],obs[2], c="red", s=60)
     ax.set_title("3D Waypoint Preview")
     plt.show()
+
+
+# ms: [array([-1.6869998 ,  0.42199749,  0.5       ,  0.2600753 ,  0.4334957 ,
+#         0.        ])]
+
+# ms: [array([-1.6869998 ,  0.42199749,  0.5       ,  0.13      ,  0.22      ,
+#         0.        ])]

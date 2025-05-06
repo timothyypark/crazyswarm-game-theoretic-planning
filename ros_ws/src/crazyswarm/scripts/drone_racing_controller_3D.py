@@ -8,7 +8,7 @@ from pycrazyswarm import Crazyswarm
 import time
 # from drone_racing_utils.mpc_controller_3D import mpc #changed to import 3d
 from drone_racing_utils.mpc_controller import mpc
-from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
+from drone_racing_utils.drone_waypoints import WaypointGenerator
 
 # try:
 #     import keyboard
@@ -105,7 +105,7 @@ def callback(state_arr, last_i):
     traj = np.array(traj)
     print("traj", traj)
     print(xy_state,traj.shape)
-    exit(0)
+    # exit(0)
     ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
     return  ax, ay, state, closest_idx
 
@@ -213,7 +213,7 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             # print("v: ", v)
             prev_pos[i] = p
             measured_states.append(np.hstack([p, v]))  # [x,y,z,vx,vy,vz]
-
+        print("ms:", measured_states)
         # 2) MPC: get control + predicted next x/y/vx/vy
         # ax, ay, state, last_i = callback(measured_states[0], last_i)
         # print("opt_x: ", state)
@@ -228,12 +228,14 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         z_sp = z_setpoints[0]   # or [i] if looping multiple drones
         # ax, ay, az, state_pred6, last_i = callback(measured_states[0],last_i,z_sp)
         ax, ay, state, last_i = callback(measured_states[0], last_i)
+        print(ax,ay)
+        # exit(0)
         az = 0.
         print("predicted state:", state)
         state_pred6 = [state[0],state[1],0.,state[2],state[3],0.]
         x_dyn = vehicle_dynamics_3d(state_pred6, [ax, ay, az])
 
-        # prev_vel = np.array([x_dyn[2],x_dyn[3], 0.0])
+        prev_vel = np.array([x_dyn[3],x_dyn[4], 0.0])
         # if _emergency_land:
         #     break
 
@@ -244,14 +246,17 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             z_target = z_setpoints[i]
             # vz_new = 0.0
             # az_pid = K2_alt @ np.array([z_target - measured_states[i][2],0.0])
-
+            z_new = z_setpoints[i]
             # altitude-hold acceleration -- removed from 2d version
             z_meas = measured_states[i][2]
             vz_meas = measured_states[i][5]
+            print(z_new,z_meas,vz_new,vz_meas)
             az = K2_alt @ np.array([z_new - z_meas,
                                      vz_new - vz_meas])
 
             print("ax", ax, "ay", ay, "az", az)
+            # if step == 1 :
+            #     exit(0)
             accel3d = np.array([ax, ay, az])
             cf.cmdFullState(
                 np.array([x_new, y_new, z_new]),

@@ -95,7 +95,7 @@ def callback(state_arr, last_i):
     traj = np.array(traj)
     print("traj", traj)
     print(xy_state, traj.shape)
-    exit(0)
+    # exit(0)
     ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
     return  ax, ay, state, closest_idx
 
@@ -124,7 +124,9 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
     step = 0
     t0 = timeHelper.time()
     last_i = -1
+    # ti = 0
     while not timeHelper.isShutdown() and step < total_steps:
+        
         # 1) measure actual state
         measured_states = []
         for i, cf in enumerate(cfs):
@@ -135,13 +137,15 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             prev_pos[i] = p
             measured_states.append(np.hstack([p, v]))  # [x,y,z,vx,vy,vz]
 
+        print("ms:", measured_states)
+        
         # 2) MPC: get control + predicted next x/y/vx/vy
         ax, ay, state, last_i = callback(measured_states[0], last_i)
         print("opt_x: ", state)
         x_dyn = vehicle_dynamics(state, [ax, ay])
         print("x_dyn: ", x_dyn)
         print("u", ax, ay)
-
+        # exit(0)
         prev_vel = np.array([x_dyn[2],x_dyn[3], 0.0])
         # if _emergency_land:
         #     break
@@ -156,9 +160,13 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             # altitude-hold acceleration
             z_meas = measured_states[i][2]
             vz_meas = measured_states[i][5]
+            print(z_setpoints,i)
+            print(z_new,z_meas,vz_new,vz_meas)
             az = K2_alt @ np.array([z_new - z_meas,
                                      vz_new - vz_meas])
-
+            print(ax,ay,az)
+            if step == 1:
+                exit(0)
             cf.cmdFullState(
                 np.array([x_new, y_new, z_new]),
                 np.array([vx_new, vy_new, vz_new]),
