@@ -84,23 +84,29 @@ def callback(state_arr, last_i, z_setpoint):
     next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
     dist_target = 0
     lookahead_factor = .3
-    traj_xy = []
+    # traj_xy = []
 
-    for t in np.arange(LOOKAHEAD_DT, LOOKAHEAD_HORIZON + LOOKAHEAD_DT/2,LOOKAHEAD_DT):
-        dist_target += v_factor*waypoint_generator.raceline[curr_idx,2]*LOOKAHEAD_DT
-        while dist_target - next_dist > 0. :
-            dist_target -= next_dist
-            curr_idx = next_idx
-            next_idx = (next_idx+1)%len(waypoint_generator.raceline)
-            next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+    # for t in np.arange(LOOKAHEAD_DT, LOOKAHEAD_HORIZON + LOOKAHEAD_DT/2,LOOKAHEAD_DT):
+    #     dist_target += v_factor*waypoint_generator.raceline[curr_idx,2]*LOOKAHEAD_DT
+    #     while dist_target - next_dist > 0. :
+    #         dist_target -= next_dist
+    #         curr_idx = next_idx
+    #         next_idx = (next_idx+1)%len(waypoint_generator.raceline)
+    #         next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
 
-        ratio = dist_target/next_dist
-        xy = (1.-ratio)*waypoint_generator.raceline[next_idx,:2] + ratio * waypoint_generator.raceline[curr_idx,:2]
-        traj_xy.append(xy)
+    #     ratio = dist_target/next_dist
+    #     xy = (1.-ratio)*waypoint_generator.raceline[next_idx,:2] + ratio * waypoint_generator.raceline[curr_idx,:2]
+    #     traj_xy.append(xy)
         # pt = (1.-ratio)*waypoint_generator.raceline[next_idx,:2] + ratio*waypoint_generator.raceline[curr_idx,:2]
         # traj.append(pt) # just follow the raceline (centerline)
     # traj = np.array(traj)
-    traj_xy = np.array(traj_xy)  
+    # traj_xy = np.array(traj_xy)  #old 3d
+    waypoints, kin_pos, _, _ = waypoint_generator.generate(
+        state_arr,   # full 6-vector [x,y,z,vx,vy,vz]
+        DT,
+        kin_horizon=LOOKAHEAD_HORIZON
+    )
+    traj_xy = waypoints[1 : H+1, :2]    # shape (H,2)
     print("traj", traj_xy)
     # ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
     # return  ax, ay, state, closest_idx

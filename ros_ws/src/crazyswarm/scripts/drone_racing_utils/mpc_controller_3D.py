@@ -2,7 +2,7 @@ import numpy as np
 import casadi as ca
 
 # IBR params
-N = 10
+N = 20 #changed from 10
 
 dt = 0.1
 
