@@ -124,8 +124,17 @@ def mpc(x0, traj, lookahead_factor=1.0):
     """
     x0 = np.array(x0).flatten()
     # build parameter vector
-    params = np.concatenate((x0, traj.T.flatten(), np.array([lookahead_factor])))
+    # params = np.concatenate((x0, traj.T.flatten(), np.array([lookahead_factor])))
 
+    # traj_flat = traj.flatten(order='F')
+    # params = np.concatenate((x0, traj_flat, np.array([lookahead_factor])))
+    
+    tx = traj[0, :]     # shape (N,)
+    ty = traj[1, :]
+    tz = traj[2, :]
+    packed = np.concatenate((tx, ty, tz))  # shape (3*N,)
+    params = np.concatenate((x0, packed, np.array([lookahead_factor])))
+    
     # initial guess for x and u
     x_init = np.tile(x0, (N+1, 1)).T
     u_init = np.zeros((3, N))
