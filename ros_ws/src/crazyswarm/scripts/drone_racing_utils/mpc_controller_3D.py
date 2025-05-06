@@ -38,9 +38,9 @@ target_state = ca.MX.sym('target_states', N*3)
 # Weights for cost
 a_max = 2.5      # [m/s^2] acceleration bound (high so constraint is inactive)
 v_max = 0.7     # [m/s]   maximum speed bound (adjust as needed)
-Q = np.diag([10000, 10000, 10000]) * qr_ratio  # state error weight
+Q = np.diag([100, 100, 100]) * qr_ratio  # state error weight
 dQ = ca.MX(Q)
-R = np.diag([100, 100, 100])              # control effort weight
+R = np.diag([10, 10, 10])              # control effort weight
 
 # Build objective and constraints
 cost = 0
