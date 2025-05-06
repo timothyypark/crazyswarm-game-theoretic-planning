@@ -12,7 +12,7 @@ Supported track specs
 
 Returned format
 ---------------
-``generate(obs) -> np.ndarray`` of shape ``(H+1, 3)`` with columns
+``generate(obs) -> np.ndarray`` of shape ``(H+1, 6)`` with columns
 ``[x, y, v_ref]``.
 
 GPU: heavy maths use **JAX** (`jax.numpy`) so everything runs on CUDA/TPU when
@@ -238,7 +238,7 @@ def _counter_stadium_3D(theta: float) -> jnp.ndarray:
     x_rotated = x * cos - y * sin
     y_rotated = x * sin + y * cos + 1.5
 
-    base_h, amp = 1.0, 0.3
+    base_h, amp = 1.0, 2
     z = base_h + amp*jnp.sin(s / perim * 2*jnp.pi) #z=base_height+amplitude*sin(s*2π/perim)
 
     return jnp.stack([x_rotated, y_rotated, z])
@@ -307,19 +307,24 @@ class WaypointGenerator:
             # pre-sample for analytic tracks (helps closest-point search)
             ts = jnp.arange(0.0, 2 * jnp.pi, self.dt / self.nom_speed)
             path_xyz = np.asarray(jax.vmap(self._fn)(ts))
-            # raceline: [x, y, v_ref]
+            # raceline: [x, y, z, v_ref]
             self.raceline = np.column_stack((path_xyz, np.full(len(path_xyz), self.nom_speed)))
-        elif waypoint_type.endswith(".yaml"):
-            self._mode = "yaml"
-            traj = _load_from_yaml(Path(waypoint_type), speed=self.nom_speed)
-            # traj already is (N,3) = [x, y, v_ref]
-            self.raceline = traj
-        else:
-            self._mode = "csv"
-            traj = _load_from_csv(waypoint_type, speed=self.nom_speed)
-            # traj is (N,3) = [x, y, v_ref]
-            self.raceline = traj
-
+        else: 
+            if waypoint_type.endswith(".yaml"):
+                self._mode = "yaml"
+                arr = _load_from_yaml(Path(waypoint_type), speed=self.nom_speed) #changed from traj to arr in 3D
+                # traj already is (N,3) = [x, y, z, v_ref]
+                # self.raceline = traj
+            else:
+                self._mode = "csv"
+                arr = _load_from_csv(waypoint_type, speed=self.nom_speed)
+                # traj is (N,3) = [x, y, v_ref]
+                # self.raceline = traj
+            # inserted for 3D -- pad a zero-height column → (N,4) = [x,y,z=0,v]
+            zeros = np.zeros((arr.shape[0], 1), dtype=float)
+            self.raceline = np.hstack((arr[:, :2], zeros, arr[:, 2:3]))
+        
+                
         # Compute cumulative arc-length along raceline -----------------------
         # differences between successive (x,y)
         deltas = np.diff(self.raceline[:, :3], axis=0)
@@ -393,6 +398,7 @@ class WaypointGenerator:
         traj_new[:,1] = traj[:,1] + shift_dist * np.sin(yaws + np.pi/2)
         return traj_new
 
+    #only for 2D
     def get_boundaries(self, half_width: float) -> tuple[np.ndarray, np.ndarray]:
         """
         Returns (left_boundary, right_boundary), each an (N,2) array of points,
@@ -426,6 +432,13 @@ if __name__ == "__main__":
     # obs = np.array([dense_xy[0, 0], dense_xy[0, 1], 0.0, 0.0])
     obs = np.array([*dense_xyz[0], 0.0, 0.0, 0.0])  # only x,y,z matter
     waypoints, _, _, _ = gen.generate(obs, 0.1)
+    
+    # --- print z over time ----
+    print("Waypoint z-coordinates over time:")
+    for k, wp in enumerate(waypoints):
+        t = k * gen.dt
+        z = wp[2]
+        print(f" t = {t:.2f}s → z = {z:.3f}")
 
     # Plot track and look‑ahead waypoints -----------------------------------
     # 2D Case 
