@@ -109,8 +109,8 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
     """
     Runs receding-horizon control:
       1. Measure actual state (Vicon)
-      2. Call MPC → ax, ay and predicted next x/y/vx/vy
-      3. Send predicted x/y, constant z, predicted vx/vy, zero vz, and accelerations via cmdFullState
+      2. Call MPC → ax, ay, az and predicted next x/y/vx/vy/yz
+      3. Send predicted x/y/z, constant z, predicted vx/vy/vz and accelerations via cmdFullState
       4. Log actual measured state
     """
     assert(len(cfs) == 1) # code went from 3 drones to 1, covering ourselves for when we fix it
@@ -144,8 +144,6 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
       
         ax, ay, az, state, last_i = callback(measured_states[0], last_i)
         print(ax,ay, az)
-        # exit(0)
-        # az = 0.
         print("predicted state:", state)
         state_pred6 = [state[0],state[1],state[2],state[3], state[4], state[5]]
         x_dyn = vehicle_dynamics_3d(state_pred6, [ax, ay, az])
