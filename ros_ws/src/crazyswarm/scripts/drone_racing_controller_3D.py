@@ -8,7 +8,7 @@ from pycrazyswarm import Crazyswarm
 import time
 # from drone_racing_utils.mpc_controller_3D import mpc #changed to import 3d
 from drone_racing_utils.mpc_controller import mpc
-from drone_racing_utils.drone_waypoints import WaypointGenerator
+from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 
 # try:
 #     import keyboard

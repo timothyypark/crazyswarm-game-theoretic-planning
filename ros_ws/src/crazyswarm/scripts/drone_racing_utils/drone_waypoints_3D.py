@@ -293,7 +293,7 @@ def _load_from_csv(basename: str, speed: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Main generator class
 # ---------------------------------------------------------------------------
-class WaypointGenerator:
+class WaypointGenerator2:
     def __init__(self, waypoint_type: str, dt: float, horizon: int, speed: float):
         self.dt = float(dt)
         self.H = int(horizon)
@@ -399,7 +399,7 @@ class WaypointGenerator:
         right = self.calc_shifted_traj(center_xy, -half_width)
         return left, right
     
-class WaypointGenerator2:
+class WaypointGenerator:
     def __init__(self, waypoint_type: str, dt: float, horizon: int, speed: float):
         self.dt = float(dt)
         self.H = int(horizon)
