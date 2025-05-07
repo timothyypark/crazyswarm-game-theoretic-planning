@@ -2,7 +2,7 @@ import numpy as np
 import casadi as ca
 
 # IBR params
-N = 20 #changed from 10
+N = 10 #changed from 10
 
 dt = 0.1
 
@@ -116,7 +116,7 @@ ubg = np.concatenate([
 ])
 
 # MPC wrapper function
-def mpc(x0, traj, lookahead_factor=1.0):
+def mpc_3D(x0, traj, lookahead_factor=1.0):
     """
     Run MPC: x0    -> current state (6,)
              traj  -> reference trajectory shape (3, N)
@@ -129,11 +129,11 @@ def mpc(x0, traj, lookahead_factor=1.0):
     # traj_flat = traj.flatten(order='F')
     # params = np.concatenate((x0, traj_flat, np.array([lookahead_factor])))
     
-    tx = traj[0, :]     # shape (N,)
-    ty = traj[1, :]
-    tz = traj[2, :]
-    packed = np.concatenate((tx, ty, tz))  # shape (3*N,)
-    params = np.concatenate((x0, packed, np.array([lookahead_factor])))
+    # tx = traj[0, :]     # shape (N,)
+    # ty = traj[1, :]
+    # tz = traj[2, :]
+    # packed = np.concatenate((tx, ty, tz))  # shape (3*N,)
+    params = np.concatenate((x0, traj.T.flatten(), np.array([lookahead_factor])))
     
     # initial guess for x and u
     x_init = np.tile(x0, (N+1, 1)).T

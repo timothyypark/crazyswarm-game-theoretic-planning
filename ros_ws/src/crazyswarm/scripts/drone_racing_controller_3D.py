@@ -7,7 +7,7 @@ import numpy as np
 from pycrazyswarm import Crazyswarm
 import time
 # from drone_racing_utils.mpc_controller_3D import mpc #changed to import 3d
-from drone_racing_utils.mpc_controller import mpc
+from drone_racing_utils.mpc_controller_3D import mpc_3D
 from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 
 # try:
@@ -17,7 +17,7 @@ from drone_racing_utils.drone_waypoints_3D import WaypointGenerator
 #     _KEYBOARD_AVAILABLE = False
 N = 10
 trajectory_type = "counter stadium"
-Zs = [0.5]
+# Zs = [0.5]
 
 LOOKAHEAD_DT      = 0.1    
 SHIFT_THRESHOLD   = 0.1   
@@ -37,12 +37,6 @@ tracks_pos = {"counter circle": [(4.4, 0.9), (4.1, 1.8), (4.5, 0)],
 
 
 def vehicle_dynamics_3d(xk, uk):
-    # x    = xk[0]
-    # y    = xk[1]
-    # x_dot = xk[2]
-    # y_dot = xk[3]
-    # a_x  = uk[0]
-    # a_y  = uk[1]
     x, y, z, vx, vy, vz = xk
     ax, ay, az = uk
 
@@ -74,19 +68,20 @@ def callback(state_arr, last_i):
     
 
     v_factor = 1
-    x, y, _, vx, vy, _ = state_arr
-    xy_state = x,y,vx,vy
+    print("state_arr is ", state_arr)
+    x, y, z, vx, vy, vz = state_arr
+    xyz_state = x,y,z,vx,vy,vz
     if last_i == -1:
-        dists = np.sqrt((waypoint_generator.raceline[:,0]-x)**2 + (waypoint_generator.raceline[:,1]-y)**2)
+        dists = np.sqrt((waypoint_generator.raceline[:,0]-x)**2 + (waypoint_generator.raceline[:,1]-y)**2 + (waypoint_generator.raceline[:,2]-z)**2)
         closest_idx = np.argmin(dists)
     else:
         raceline_ext = np.concatenate((waypoint_generator.raceline[last_i:,:],waypoint_generator.raceline[:50,:]),axis=0)
-        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2)
+        dists = np.sqrt((raceline_ext[:50,0]-x)**2 + (raceline_ext[:50,1]-y)**2 + (raceline_ext[:50,2]-z)**2)
         closest_idx = (np.argmin(dists) + last_i)%len(waypoint_generator.raceline)
     
     curr_idx = (closest_idx+1)%len(waypoint_generator.raceline)
     next_idx = (curr_idx+1)%len(waypoint_generator.raceline)
-    next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+    next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2 + (waypoint_generator.raceline[next_idx,2]-waypoint_generator.raceline[curr_idx,2])**2)
     dist_target = 0
     lookahead_factor = .3
     traj = []
@@ -97,17 +92,17 @@ def callback(state_arr, last_i):
             dist_target -= next_dist
             curr_idx = next_idx
             next_idx = (next_idx+1)%len(waypoint_generator.raceline)
-            next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2)
+            next_dist = np.sqrt((waypoint_generator.raceline[next_idx,0]-waypoint_generator.raceline[curr_idx,0])**2 + (waypoint_generator.raceline[next_idx,1]-waypoint_generator.raceline[curr_idx,1])**2 + (waypoint_generator.raceline[next_idx,2]-waypoint_generator.raceline[curr_idx,2])**2)
 
         ratio = dist_target/next_dist
-        pt = (1.-ratio)*waypoint_generator.raceline[next_idx,:2] + ratio*waypoint_generator.raceline[curr_idx,:2]
-        traj.append(pt[:2]) # just follow the raceline (centerline)
+        pt = (1.-ratio)*waypoint_generator.raceline[next_idx,:3] + ratio*waypoint_generator.raceline[curr_idx,:3]
+        traj.append(pt[:3]) # just follow the raceline (centerline)
     traj = np.array(traj)
     print("traj", traj)
-    print(xy_state,traj.shape)
+    print(xyz_state,traj.shape)
     # exit(0)
-    ax, ay, state = mpc(np.array(xy_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
-    return  ax, ay, state, closest_idx
+    ax, ay, az, state = mpc_3D(np.array(xyz_state),np.array(traj),lookahead_factor=lookahead_factor) #TODO: change mpc controller to return state
+    return  ax, ay, az, state, closest_idx
 
 def callback1(state_arr, last_i, z_setpoint):
     """
@@ -227,12 +222,12 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         #for 3d case 
         z_sp = z_setpoints[0]   # or [i] if looping multiple drones
         # ax, ay, az, state_pred6, last_i = callback(measured_states[0],last_i,z_sp)
-        ax, ay, state, last_i = callback(measured_states[0], last_i)
-        print(ax,ay)
+        ax, ay, az, state, last_i = callback(measured_states[0], last_i)
+        print(ax,ay, az)
         # exit(0)
         az = 0.
         print("predicted state:", state)
-        state_pred6 = [state[0],state[1],0.,state[2],state[3],0.]
+        state_pred6 = [state[0],state[1],state[2],state[3], state[4], state[5]]
         x_dyn = vehicle_dynamics_3d(state_pred6, [ax, ay, az])
 
         prev_vel = np.array([x_dyn[3],x_dyn[4], 0.0])
@@ -291,8 +286,8 @@ if __name__ == "__main__":
     timeHelper = swarm.timeHelper
     cfs = swarm.allcfs.crazyflies[:1]
 
-    # desired constant take-off altitudes
-    Zs = [0.5]
+    # desired constant take-off altitudes -- modify for constant z
+    Zs = [3.2]
 
     # take off all three
     for cf, Z in zip(cfs, Zs):
