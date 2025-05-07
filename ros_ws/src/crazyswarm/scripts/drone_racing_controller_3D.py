@@ -194,7 +194,7 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
 
     # initialize history for finite-difference velocity
     prev_pos = [np.array(cf.position()) for cf in cfs]
-    prev_vel = np.array([0.13,0.22, 0.0])
+    prev_vel = np.array([0.13,0.22, 0.1]) #changed z component to nonzero
     step = 0
     t0 = timeHelper.time()
     last_i = -1
@@ -220,17 +220,17 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         # ax, ay, az, state_pred6, last_i = callback(measured_states[0], last_i)
         
         #for 3d case 
-        z_sp = z_setpoints[0]   # or [i] if looping multiple drones
+        # z_sp = z_setpoints[0]   # or [i] if looping multiple drones
         # ax, ay, az, state_pred6, last_i = callback(measured_states[0],last_i,z_sp)
         ax, ay, az, state, last_i = callback(measured_states[0], last_i)
         print(ax,ay, az)
         # exit(0)
-        az = 0.
+        # az = 0.
         print("predicted state:", state)
         state_pred6 = [state[0],state[1],state[2],state[3], state[4], state[5]]
         x_dyn = vehicle_dynamics_3d(state_pred6, [ax, ay, az])
 
-        prev_vel = np.array([x_dyn[3],x_dyn[4], 0.0])
+        prev_vel = np.array([x_dyn[3],x_dyn[4], x_dyn[5]])
         # if _emergency_land:
         #     break
 
@@ -238,16 +238,16 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
         for i, cf in enumerate(cfs):
             x_new, y_new, z_new, vx_new, vy_new, vz_new = x_dyn
             # constant altitude and zero vertical velocity
-            z_target = z_setpoints[i]
+            # z_target = z_setpoints[i]
             # vz_new = 0.0
             # az_pid = K2_alt @ np.array([z_target - measured_states[i][2],0.0])
-            z_new = z_setpoints[i]
+            # z_new = z_setpoints[i]
             # altitude-hold acceleration -- removed from 2d version
-            z_meas = measured_states[i][2]
-            vz_meas = measured_states[i][5]
-            print(z_new,z_meas,vz_new,vz_meas)
-            az = K2_alt @ np.array([z_new - z_meas,
-                                     vz_new - vz_meas])
+            # z_meas = measured_states[i][2]
+            # vz_meas = measured_states[i][5]
+            # print(z_new,z_meas,vz_new,vz_meas)
+            # az = K2_alt @ np.array([z_new - z_meas,
+            #                          vz_new - vz_meas])
 
             print("ax", ax, "ay", ay, "az", az)
             # if step == 1 :
@@ -287,11 +287,11 @@ if __name__ == "__main__":
     cfs = swarm.allcfs.crazyflies[:1]
 
     # desired constant take-off altitudes -- modify for constant z
-    Zs = [3.2]
+    Zs = [0.5]
 
     # take off all three
     for cf, Z in zip(cfs, Zs):
-        cf.takeoff(targetHeight=Z, duration=2.0)
+        cf.takeoff(targetHeight=Z, duration=2.0) #change the takeoff height here!
     timeHelper.sleep(2.0)
 
     # run the MPC-driven trajectory
