@@ -42,16 +42,22 @@ tracks_pos = {"counter circle": [(4.4, 0.9), (4.1, 1.8), (4.5, 0)],
 def vehicle_dynamics(xk, uk):
     x    = xk[0]
     y    = xk[1]
+    
     x_dot = xk[2]
     y_dot = xk[3]
     a_x  = uk[0]
     a_y  = uk[1]
+    
+    x, y, z, x_dot, y_dot, z_dot = xk[0], xk[1], xk[2], xk[3], xk[4], xk[5]
+    a_x, a_y, a_z = uk[0], uk[1], uk[2]
 
     x_next = np.array([
         x + x_dot * DT,
         y + y_dot * DT,
+        z + z_dot * DT,
         x_dot + a_x * DT,
         y_dot + a_y * DT,
+        z_dot + a_z * DT
     ])
     return x_next
 

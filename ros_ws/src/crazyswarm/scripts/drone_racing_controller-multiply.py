@@ -271,6 +271,7 @@ def executeTrajectory(timeHelper, cfs, horizon, stopping_horizon, dt = 0.1, rate
             prev_pos[i] = p
             measured_states.append(np.hstack([p, v]))  # [x,y,z,vx,vy,vz]
 
+        print(prev_vel)
         vx = prev_vel[0][0]
         vy = prev_vel[0][1]
         vx_opp = prev_vel[1][0]
